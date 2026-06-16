@@ -1,0 +1,344 @@
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#080c18}
+  .sim{background:#080c18;min-height:100vh;color:#cdd6f4;font-family:'JetBrains Mono',monospace;padding:18px}
+  .header h1{font-size:17px;font-weight:600;color:#89b4fa;letter-spacing:.06em;margin-bottom:3px}
+  .header p{font-size:11px;color:rgba(205,214,244,.35);margin-bottom:16px}
+  .presets{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:16px}
+  .preset-btn{padding:4px 11px;border-radius:4px;font-size:10px;cursor:pointer;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:rgba(205,214,244,.55);font-family:inherit;transition:.15s;letter-spacing:.04em}
+  .preset-btn.active{border-color:#89b4fa;background:rgba(137,180,250,.1);color:#89b4fa}
+  .layout{display:grid;grid-template-columns:1fr 300px;gap:14px}
+  canvas{width:100%;border-radius:8px;border:1px solid rgba(255,255,255,.08);display:block;background:#080c18}
+  .panel{display:flex;flex-direction:column;gap:11px}
+  .card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:14px}
+  .card-label{font-size:10px;color:rgba(205,214,244,.35);letter-spacing:.12em;margin-bottom:11px}
+  .matrix-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .field-label{font-size:10px;color:rgba(205,214,244,.3);margin-bottom:3px}
+  input[type=number]{width:100%;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.12);border-radius:4px;color:#cdd6f4;padding:6px 8px;font-size:14px;font-family:inherit;outline:none}
+  input[type=number]:focus{border-color:#89b4fa}
+  .mat-display{margin-top:10px;padding:9px;background:rgba(0,0,0,.35);border-radius:5px;font-size:13px;text-align:center;color:#f9e2af;letter-spacing:.03em}
+  .eig-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .eig-index{font-size:11px;color:rgba(205,214,244,.35);width:20px}
+  .eig-val{font-size:14px;font-weight:500}
+  .eig-tag{font-size:9px;opacity:.7;letter-spacing:.05em}
+  .behavior-box{margin-top:8px;padding:7px 10px;background:rgba(0,0,0,.3);border-radius:5px;font-size:11px;color:rgba(205,214,244,.6);line-height:1.5}
+  .inv-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .inv-label{font-size:11px;color:rgba(205,214,244,.4)}
+  .inv-val{font-size:12px;color:#89b4fa}
+  .legend{font-size:10px;color:rgba(205,214,244,.35);line-height:2}
+  .footer{margin-top:13px;padding:12px 14px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.07);border-radius:7px;font-size:11px;color:rgba(205,214,244,.4);line-height:2}
+  .footer span{color:rgba(205,214,244,.6)}
+  sup{font-size:8px}
+  @media(max-width:640px){.layout{grid-template-columns:1fr}}
+</style>
+
+<div class="sim">
+  <div class="header">
+    <h1>x′ = Ax &nbsp;—&nbsp; Phase Portrait Simulator</h1>
+    <p>Visualize linear ODE systems solved via eigendecomposition &nbsp;·&nbsp; RK4 integration</p>
+  </div>
+
+  <div class="presets" id="presets"></div>
+
+  <div class="layout">
+    <canvas id="canvas" width="520" height="520"></canvas>
+    <div class="panel">
+      <div class="card">
+        <div class="card-label">MATRIX  A</div>
+        <div class="matrix-grid" id="matrix-inputs"></div>
+        <div class="mat-display" id="mat-display"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">EIGENVALUES</div>
+        <div id="eig-display"></div>
+        <div class="behavior-box" id="behavior-box"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">INVARIANTS</div>
+        <div id="invariants"></div>
+      </div>
+      <div class="legend" id="legend">
+        <div><span style="color:#4fc3f7">━━</span> Vector field</div>
+        <div><span style="color:#a6e3a1">╌╌</span> Stable eigenvector (λ &lt; 0)</div>
+        <div><span style="color:#f38ba8">╌╌</span> Unstable eigenvector (λ &gt; 0)</div>
+        <div><span style="color:#aaa">●</span> Initial conditions</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>General solution:</span>
+    x(t) = c₁·e<sup>λ₁t</sup>·v₁ + c₂·e<sup>λ₂t</sup>·v₂
+    &nbsp;&nbsp;|&nbsp;&nbsp;
+    <span>Matrix exponential:</span>
+    e<sup>At</sup> = P·diag(e<sup>λᵢt</sup>)·P⁻¹
+    &nbsp;&nbsp;|&nbsp;&nbsp; Integrated via RK4
+  </div>
+</div>
+
+<script>
+const PRESETS = {
+  "Spiral in":   { a:-1, b:-3, c:3, d:-1 },
+  "Spiral out":  { a:1,  b:-3, c:3, d:1  },
+  "Stable node": { a:-2, b:0.5, c:0.5, d:-3 },
+  "Unstable node":{ a:2, b:0.5, c:0, d:3 },
+  "Saddle":      { a:2,  b:0,  c:0, d:-1  },
+  "Center":      { a:0,  b:-2, c:2, d:0   },
+};
+
+let state = { a:-1, b:-3, c:3, d:-1 };
+let activePreset = "Spiral in";
+
+function computeEigenvalues(a,b,c,d){
+  const tr = a+d, det = a*d - b*c;
+  const disc = tr*tr - 4*det;
+  if(disc >= 0){
+    const sq = Math.sqrt(disc);
+    return [{re:(tr+sq)/2, im:0},{re:(tr-sq)/2, im:0}];
+  } else {
+    const sq = Math.sqrt(-disc);
+    return [{re:tr/2, im:sq/2},{re:tr/2, im:-sq/2}];
+  }
+}
+
+function computeEigenvectors(a,b,c,d,eigs){
+  return eigs.map(({re,im})=>{
+    if(Math.abs(im)>1e-6) return null;
+    if(Math.abs(b)>1e-6){
+      const v=[b, re-a], n=Math.sqrt(v[0]*v[0]+v[1]*v[1]);
+      return [v[0]/n, v[1]/n];
+    }
+    if(Math.abs(c)>1e-6){
+      const v=[re-d, c], n=Math.sqrt(v[0]*v[0]+v[1]*v[1]);
+      return [v[0]/n, v[1]/n];
+    }
+    return [1,0];
+  });
+}
+
+function classify(eigs){
+  const [e1,e2]=eigs;
+  if(Math.abs(e1.im)>1e-6){
+    if(Math.abs(e1.re)<1e-6) return "Center — pure oscillation (imaginary eigenvalues)";
+    return e1.re<0 ? "Spiral in — decaying oscillation (complex, Re < 0)" : "Spiral out — growing oscillation (complex, Re > 0)";
+  }
+  if(e1.re>0&&e2.re>0) return "Unstable node — both eigenvalues positive";
+  if(e1.re<0&&e2.re<0) return "Stable node — both eigenvalues negative";
+  if(e1.re*e2.re<0) return "Saddle point — eigenvalues have opposite signs";
+  if(Math.abs(e1.re)<1e-6&&Math.abs(e2.re)<1e-6) return "Center — zero eigenvalues";
+  return "Degenerate / borderline case";
+}
+
+function fmtEig({re,im}){
+  if(Math.abs(im)<1e-6) return re.toFixed(3);
+  const s=im>=0?"+":"−";
+  return `${re.toFixed(2)} ${s} ${Math.abs(im).toFixed(2)}i`;
+}
+
+function rk4Step(x,y,dt,a,b,c,d){
+  const f=(x,y)=>({dx:a*x+b*y, dy:c*x+d*y});
+  const k1=f(x,y);
+  const k2=f(x+dt/2*k1.dx, y+dt/2*k1.dy);
+  const k3=f(x+dt/2*k2.dx, y+dt/2*k2.dy);
+  const k4=f(x+dt*k3.dx, y+dt*k3.dy);
+  return {
+    x: x+dt/6*(k1.dx+2*k2.dx+2*k3.dx+k4.dx),
+    y: y+dt/6*(k1.dy+2*k2.dy+2*k3.dy+k4.dy),
+  };
+}
+
+const TRAJ_COLORS=["#f38ba8","#fab387","#f9e2af","#a6e3a1","#89dceb","#89b4fa","#cba6f7","#74c7ec","#f5c2e7","#eba0ac"];
+
+function drawCanvas(){
+  const canvas=document.getElementById("canvas");
+  const ctx=canvas.getContext("2d");
+  const W=canvas.width, H=canvas.height;
+  const cx=W/2, cy=H/2, scale=W/10;
+  const {a,b,c,d}=state;
+  const eigs=computeEigenvalues(a,b,c,d);
+  const evecs=computeEigenvectors(a,b,c,d,eigs);
+
+  const toC=(x,y)=>({px:cx+x*scale, py:cy-y*scale});
+
+  ctx.fillStyle="#080c18";
+  ctx.fillRect(0,0,W,H);
+
+  // Grid
+  ctx.strokeStyle="rgba(255,255,255,0.05)";
+  ctx.lineWidth=0.5;
+  for(let i=-5;i<=5;i++){
+    const {px}=toC(i,0); ctx.beginPath();ctx.moveTo(px,0);ctx.lineTo(px,H);ctx.stroke();
+    const {py}=toC(0,i); ctx.beginPath();ctx.moveTo(0,py);ctx.lineTo(W,py);ctx.stroke();
+  }
+
+  // Axes
+  ctx.strokeStyle="rgba(255,255,255,.2)";ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(0,cy);ctx.lineTo(W,cy);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx,0);ctx.lineTo(cx,H);ctx.stroke();
+
+  // Axis labels
+  ctx.font="10px JetBrains Mono,monospace";
+  ctx.fillStyle="rgba(255,255,255,.25)";
+  ctx.textAlign="center";
+  for(const v of[-4,-3,-2,-1,1,2,3,4]){
+    const {px}=toC(v,0); ctx.fillText(v,px,cy+13);
+    const {py}=toC(0,v); ctx.fillText(v,cx-14,py+3);
+  }
+  ctx.fillStyle="rgba(255,255,255,.4)";
+  ctx.fillText("x₁",W-14,cy-6);
+  ctx.textAlign="left";ctx.fillText("x₂",cx+5,10);
+
+  // Vector field
+  const step=0.55;
+  for(let gx=-4.7;gx<=4.7;gx+=step){
+    for(let gy=-4.7;gy<=4.7;gy+=step){
+      const dx=a*gx+b*gy, dy=c*gx+d*gy;
+      const mag=Math.sqrt(dx*dx+dy*dy);
+      if(mag<1e-9) continue;
+      const norm=Math.min(mag,2.5)/mag;
+      const {px,py}=toC(gx,gy);
+      const ex=dx/mag*norm*13, ey=-dy/mag*norm*13;
+      const alpha=Math.min(.55, .15+mag*.08);
+      ctx.strokeStyle=`rgba(100,180,255,${alpha})`;
+      ctx.lineWidth=0.7;
+      ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(px+ex,py+ey);ctx.stroke();
+      const ang=Math.atan2(ey,ex);
+      ctx.fillStyle=`rgba(100,180,255,${alpha})`;
+      ctx.beginPath();
+      ctx.moveTo(px+ex,py+ey);
+      ctx.lineTo(px+ex-5*Math.cos(ang-.45),py+ey-5*Math.sin(ang-.45));
+      ctx.lineTo(px+ex-5*Math.cos(ang+.45),py+ey-5*Math.sin(ang+.45));
+      ctx.closePath();ctx.fill();
+    }
+  }
+
+  // Trajectories
+  const ICs=[[3,0],[-3,0],[0,3],[0,-3],[2.5,2],[-2.5,-2],[2.5,-2],[-2.5,2],[3.5,1.2],[-3.5,-1.2]];
+  const dt=0.02, steps=400;
+  ICs.forEach(([x0,y0],idx)=>{
+    const color=TRAJ_COLORS[idx%TRAJ_COLORS.length];
+    const fwd=[{x:x0,y:y0}];
+    let cur={x:x0,y:y0};
+    for(let i=0;i<steps;i++){
+      const next=rk4Step(cur.x,cur.y,dt,a,b,c,d);
+      if(Math.abs(next.x)>6.5||Math.abs(next.y)>6.5) break;
+      fwd.push(next); cur=next;
+    }
+    const bwd=[];
+    cur={x:x0,y:y0};
+    for(let i=0;i<steps;i++){
+      const next=rk4Step(cur.x,cur.y,-dt,a,b,c,d);
+      if(Math.abs(next.x)>6.5||Math.abs(next.y)>6.5) break;
+      bwd.unshift(next); cur=next;
+    }
+    const all=[...bwd,...fwd];
+    if(all.length<2) return;
+    ctx.strokeStyle=color;ctx.lineWidth=1.4;ctx.globalAlpha=.7;
+    ctx.beginPath();
+    all.forEach(({x,y},i)=>{
+      const {px,py}=toC(x,y);
+      i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+    });
+    ctx.stroke();ctx.globalAlpha=1;
+    const {px,py}=toC(x0,y0);
+    ctx.fillStyle=color;ctx.beginPath();ctx.arc(px,py,3.5,0,Math.PI*2);ctx.fill();
+  });
+
+  // Eigenvectors
+  evecs.forEach((ev,i)=>{
+    if(!ev) return;
+    const eColor=eigs[i].re<0?"#a6e3a1":"#f38ba8";
+    ctx.strokeStyle=eColor;ctx.lineWidth=2;
+    ctx.setLineDash([9,5]);ctx.globalAlpha=.85;
+    const {px:x1,py:y1}=toC(-ev[0]*6,-ev[1]*6);
+    const {px:x2,py:y2}=toC(ev[0]*6,ev[1]*6);
+    ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+    ctx.setLineDash([]);ctx.globalAlpha=1;
+  });
+
+  // Origin
+  ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(cx,cy,4.5,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle="#080c18";ctx.beginPath();ctx.arc(cx,cy,2.5,0,Math.PI*2);ctx.fill();
+}
+
+function updateUI(){
+  const {a,b,c,d}=state;
+  const eigs=computeEigenvalues(a,b,c,d);
+
+  // Matrix display
+  document.getElementById("mat-display").innerHTML=
+    `[ ${a} &nbsp; ${b} ]<br>[ ${c} &nbsp; ${d} ]`;
+
+  // Eigenvalues
+  const eigDiv=document.getElementById("eig-display");
+  eigDiv.innerHTML=eigs.map((ev,i)=>{
+    const c=ev.re<0?"#a6e3a1":ev.re>0?"#f38ba8":"#f9e2af";
+    const tag=ev.re<0?"← stable":ev.re>0?"→ unstable":"→ neutral";
+    return `<div class="eig-row">
+      <span class="eig-index">λ${i+1}</span>
+      <span class="eig-val" style="color:${c}">${fmtEig(ev)}</span>
+      <span class="eig-tag" style="color:${c}">${tag}</span>
+    </div>`;
+  }).join("");
+
+  document.getElementById("behavior-box").textContent=classify(eigs);
+
+  // Invariants
+  const tr=(a+d), det=a*d-b*c, disc=tr*tr-4*det;
+  document.getElementById("invariants").innerHTML=[
+    ["tr(A) = λ₁ + λ₂", tr.toFixed(3)],
+    ["det(A) = λ₁λ₂",   det.toFixed(3)],
+    ["disc = tr² − 4det", disc.toFixed(3)],
+  ].map(([l,v])=>`<div class="inv-row"><span class="inv-label">${l}</span><span class="inv-val">${v}</span></div>`).join("");
+
+  drawCanvas();
+}
+
+function init(){
+  // Presets
+  const presetDiv=document.getElementById("presets");
+  Object.keys(PRESETS).forEach(name=>{
+    const btn=document.createElement("button");
+    btn.className="preset-btn"+(name===activePreset?" active":"");
+    btn.textContent=name;
+    btn.onclick=()=>{
+      state={...PRESETS[name]};
+      activePreset=name;
+      document.querySelectorAll(".preset-btn").forEach(b=>{
+        b.classList.toggle("active",b.textContent===name);
+      });
+      syncInputs();updateUI();
+    };
+    presetDiv.appendChild(btn);
+  });
+
+  // Matrix inputs
+  const matDiv=document.getElementById("matrix-inputs");
+  [["a","Top-left (row1,col1)"],["b","Top-right (row1,col2)"],
+   ["c","Bot-left (row2,col1)"],["d","Bot-right (row2,col2)"]].forEach(([key,label])=>{
+    const wrap=document.createElement("div");
+    wrap.innerHTML=`<div class="field-label">${label}</div>
+      <input type="number" id="inp-${key}" step="0.5" value="${state[key]}">`;
+    wrap.querySelector("input").addEventListener("input",e=>{
+      state[key]=parseFloat(e.target.value)||0;
+      activePreset="custom";
+      document.querySelectorAll(".preset-btn").forEach(b=>b.classList.remove("active"));
+      updateUI();
+    });
+    matDiv.appendChild(wrap);
+  });
+
+  updateUI();
+}
+
+function syncInputs(){
+  Object.keys(state).forEach(k=>{
+    const el=document.getElementById("inp-"+k);
+    if(el) el.value=state[k];
+  });
+}
+
+init();
+</script>
